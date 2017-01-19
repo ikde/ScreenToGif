@@ -7,16 +7,25 @@ VS 2015 and .Net 4.6.1 required.
 
 Version 2.4:
 
-• Changed the output of the error logs to the Documents folder.
-• Added a Scale options to resize your webcam video feed evenly.
+• Drag and drop files from the encoder.
+• Context menu for each completed encoding, providing some clipboard operations.
+• License informations available on the "About page".
+• Error messages are now more user-friendly.
+• You can now configure where the location of the logs folder.
+• The playback buttons are now disabled during the opening of a side panel.
+• Now it remembers the clipboard paste behavior (Clipboard > Paste behavior).
+• Updated Danish, Chinese (simplified) and Russian translations.
+•
 
 Fixed:
 
-♦ Bugs with the management of localization resources.
-♦ Check for updates was reporting a new release (even when it shouldn't).
-♦ Cursor capture was causing a memory leak.
-♦ Error when openning the save dialog when the last selected folder did not exist.
-♦ It was impossible to import a project using drag and drop.
+♦ If an action (from a panel such as "Save as") failed because of some validation or when closing with the top-right X button, the playback buttons would stay disabled.
+♦ Undoing a transition left a frame that should be deleted.
+♦ PageDown and PageUp jumps among various frames instead of one by one. 
+♦ Clipboard list was not being cleared after resetting.
+♦ Color picker: While returning to the initial color, the numbers were not replaced with the selected color.
+♦ The validation of negative numbers for numeric inputs.
+♦ Error while pasting and undoing the paste of frames (quickly).
 
 Known bugs:
 

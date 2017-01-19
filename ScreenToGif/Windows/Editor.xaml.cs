@@ -1007,9 +1007,9 @@ namespace ScreenToGif.Windows
 
             #endregion
 
-            Encoder.AddItem(ListFrames.CopyToEncode(), param, this.Scale());
-
             ClosePanel();
+
+            Encoder.AddItem(ListFrames.CopyToEncode(), param, this.Scale());
         }
 
 
@@ -1038,6 +1038,7 @@ namespace ScreenToGif.Windows
             FrameListView.SelectionChanged -= FrameListView_SelectionChanged;
 
             FrameListView.Items.Clear();
+            ClipboardListBox.Items.Clear();
             ZoomBoxControl.Clear();
 
             #endregion
@@ -1125,7 +1126,6 @@ namespace ScreenToGif.Windows
                 Dialog.Ok(FindResource("Editor.Clipboard.InvalidCut.Title").ToString(),
                     FindResource("Editor.Clipboard.InvalidCut.Instruction").ToString(),
                     FindResource("Editor.Clipboard.InvalidCut.Message").ToString(), Dialog.Icons.Info);
-                CutButton.IsEnabled = true;
                 return;
             }
 
@@ -1178,8 +1178,8 @@ namespace ScreenToGif.Windows
 
             #endregion
 
-            ClipboardListView.Items.Add(imageItem);
-            ClipboardListView.SelectedIndex = ClipboardListView.Items.Count - 1;
+            ClipboardListBox.Items.Add(imageItem);
+            ClipboardListBox.SelectedIndex = ClipboardListBox.Items.Count - 1;
 
             ShowHint("Hint.Cut", selected.Count);
 
@@ -1219,8 +1219,8 @@ namespace ScreenToGif.Windows
 
             #endregion
 
-            ClipboardListView.Items.Add(imageItem);
-            ClipboardListView.SelectedIndex = ClipboardListView.Items.Count - 1;
+            ClipboardListBox.Items.Add(imageItem);
+            ClipboardListBox.SelectedIndex = ClipboardListBox.Items.Count - 1;
 
             ShowHint("Hint.Copy", selected.Count);
 
@@ -1230,7 +1230,7 @@ namespace ScreenToGif.Windows
         private void Paste_CanExecute(object sender, CanExecuteRoutedEventArgs e)
         {
             e.CanExecute = FrameListView?.SelectedItem != null && Util.Clipboard.Items.Count > 0 &&
-                           ClipboardListView.SelectedItem != null;
+                           ClipboardListBox.SelectedItem != null;
         }
 
         private void Paste_Executed(object sender, ExecutedRoutedEventArgs e)
@@ -1242,7 +1242,7 @@ namespace ScreenToGif.Windows
                     ? index
                     : index + 1;
 
-            var clipData = Util.Clipboard.Paste(ListFrames[0].ImageLocation, ClipboardListView.SelectedIndex, ClipboardListView.SelectedIndex);
+            var clipData = Util.Clipboard.Paste(ListFrames[0].ImageLocation, ClipboardListBox.SelectedIndex, ClipboardListBox.SelectedIndex);
 
             ActionStack.SaveState(ActionStack.EditAction.Add, index, clipData.Count);
 
@@ -1263,14 +1263,14 @@ namespace ScreenToGif.Windows
 
         private void ClipBoardSelection_CanExecute(object sender, CanExecuteRoutedEventArgs e)
         {
-            e.CanExecute = ClipboardListView.SelectedItem != null && !IsLoading;
+            e.CanExecute = ClipboardListBox.SelectedItem != null && !IsLoading;
         }
 
         private void ExploreClipBoard_Executed(object sender, ExecutedRoutedEventArgs e)
         {
             try
             {
-                var selected = Util.Clipboard.Items[ClipboardListView.SelectedIndex];
+                var selected = Util.Clipboard.Items[ClipboardListBox.SelectedIndex];
 
                 Process.Start(Path.GetDirectoryName(selected[0].ImageLocation));
             }
@@ -1283,8 +1283,8 @@ namespace ScreenToGif.Windows
 
         private void RemoveClipboard_Executed(object sender, ExecutedRoutedEventArgs e)
         {
-            Util.Clipboard.Remove(ClipboardListView.SelectedIndex);
-            ClipboardListView.Items.RemoveAt(ClipboardListView.SelectedIndex);
+            Util.Clipboard.Remove(ClipboardListBox.SelectedIndex);
+            ClipboardListBox.Items.RemoveAt(ClipboardListBox.SelectedIndex);
         }
 
         #endregion
@@ -1403,7 +1403,7 @@ namespace ScreenToGif.Windows
 
         private void Playback_CanExecute(object sender, CanExecuteRoutedEventArgs e)
         {
-            e.CanExecute = ListFrames != null && ListFrames.Count > 1 && !IsLoading && ActionGrid.Width < 220;
+            e.CanExecute = ListFrames != null && ListFrames.Count > 1 && !IsLoading && _applyAction == null;
         }
 
         private void FirstFrame_Executed(object sender, ExecutedRoutedEventArgs e)
@@ -1522,14 +1522,14 @@ namespace ScreenToGif.Windows
 
                 SelectNear(selectedOrdered.Last().FrameNumber);
 
+                UpdateStatistics();
                 ShowHint("Hint.DeleteFrames", selected.Count);
             }
             catch (Exception ex)
             {
                 LogWriter.Log(ex, "Error While Trying to Delete Frames");
 
-                var errorViewer = new ExceptionViewer(ex);
-                errorViewer.ShowDialog();
+                ErrorDialog.Ok(FindResource("Editor.Title") as string, "Error while trying to delete frames", ex.Message, ex);
             }
         }
 
@@ -1549,6 +1549,7 @@ namespace ScreenToGif.Windows
             AdjustFrameNumbers(0);
             SelectNear(0);
 
+            UpdateStatistics();
             ShowHint("Hint.DeleteFrames", count);
         }
 
@@ -1569,6 +1570,7 @@ namespace ScreenToGif.Windows
 
             SelectNear(FrameListView.Items.Count - 1);
 
+            UpdateStatistics();
             ShowHint("Hint.DeleteFrames", count);
         }
 
@@ -2515,6 +2517,22 @@ namespace ScreenToGif.Windows
             }
         }
 
+        private void ProgressPrecisionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!IsLoaded || !ProgressGrid.IsVisible || TextRadioButton.IsChecked == false)
+                return;
+
+            ChangeProgressTextToCurrent();
+        }
+
+        private void CustomProgressTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!IsLoaded || !ProgressGrid.IsVisible || TextRadioButton.IsChecked == false)
+                return;
+
+            ChangeProgressTextToCurrent();
+        }
+
         private void ProgressColor_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             var colorPicker = new ColorSelector(UserSettings.All.ProgressColor) { Owner = this };
@@ -2562,55 +2580,19 @@ namespace ScreenToGif.Windows
             {
                 #region Text
 
-                var totalDelay = ListFrames.Sum(x => x.Delay);
+                var total = ListFrames.Sum(y => y.Delay);
 
                 //For all frames.
                 for (var i = 1; i <= ListFrames.Count; i++)
                 {
                     //Calculates the cumulative total miliseconds.
-                    var total = 0;
+                    var cumulative = 0L;
+
                     for (var j = 0; j < i; j++)
-                    {
-                        total += ListFrames[j].Delay;
-                    }
+                        cumulative += ListFrames[j].Delay;
 
                     //Type of the representation.
-                    switch (ProgressPrecisionComboBox.SelectedIndex)
-                    {
-                        case 0: //Minutes
-                            ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? TimeSpan.FromMilliseconds(total).ToString(@"m\:ss") + "/" + TimeSpan.FromMilliseconds(totalDelay).ToString(@"m\:ss")
-                                : TimeSpan.FromMilliseconds(total).ToString(@"m\:ss");
-                            break;
-                        case 1: //Seconds
-                            ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? (int)TimeSpan.FromMilliseconds(total).TotalSeconds + "/" + TimeSpan.FromMilliseconds(totalDelay).TotalSeconds + " s"
-                                : (int)TimeSpan.FromMilliseconds(total).TotalSeconds + " s";
-                            break;
-                        case 2: //Miliseconds
-                            ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? total + "/" + totalDelay + " ms" : total + " ms";
-                            break;
-                        case 3: //Percentage
-                            var count = (double)ListFrames.Count;
-                            ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? (i / count * 100).ToString("##0.#") + "/100%"
-                                : (i / count * 100).ToString("##0.# %");
-                            break;
-                        case 4: //Frame number
-                            ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? i + "/" + ListFrames.Count
-                                : i.ToString();
-                            break;
-                        case 5: //Custom
-                            ProgressHorizontalTextBlock.Text = CustomProgressTextBox.Text
-                                .Replace("$ms", total.ToString())
-                                .Replace("$s", ((int)TimeSpan.FromMilliseconds(total).TotalSeconds).ToString())
-                                .Replace("$m", TimeSpan.FromMilliseconds(total).ToString())
-                                .Replace("$p", (i / (double)ListFrames.Count * 100).ToString("##0.#"))
-                                .Replace("$f", i.ToString())
-                                .Replace("@ms", totalDelay.ToString())
-                                .Replace("@s", ((int)TimeSpan.FromMilliseconds(totalDelay).TotalSeconds).ToString())
-                                .Replace("@m", TimeSpan.FromMilliseconds(totalDelay).ToString(@"m\:ss"))
-                                .Replace("@p", "100")
-                                .Replace("@f", ListFrames.Count.ToString());
-                            break;
-                    }
+                    ChangeProgressText(cumulative, total, i);
 
                     //Assures that the UIElement is up to the changes.
                     ProgressHorizontalTextBlock.Arrange(new Rect(ProgressOverlayGrid.RenderSize));
@@ -2666,7 +2648,7 @@ namespace ScreenToGif.Windows
 
             Cursor = Cursors.AppStarting;
 
-            ActionStack.SaveState(ActionStack.EditAction.Add, FrameListView.SelectedIndex, (int)FadeSlider.Value);
+            ActionStack.SaveState(ActionStack.EditAction.Add, FrameListView.SelectedIndex + 1, (int)FadeSlider.Value);
 
             _transitionDel = Fade;
             _transitionDel.BeginInvoke(FrameListView.SelectedIndex, (int)FadeSlider.Value, null, TransitionCallback, null);
@@ -2691,7 +2673,7 @@ namespace ScreenToGif.Windows
 
             Cursor = Cursors.AppStarting;
 
-            ActionStack.SaveState(ActionStack.EditAction.Add, FrameListView.SelectedIndex, (int)FadeSlider.Value);
+            ActionStack.SaveState(ActionStack.EditAction.Add, FrameListView.SelectedIndex + 1, (int)FadeSlider.Value);
 
             _transitionDel = Slide;
             _transitionDel.BeginInvoke(FrameListView.SelectedIndex, (int)SlideSlider.Value, SlideFrom.Right, TransitionCallback, null);
@@ -2717,14 +2699,17 @@ namespace ScreenToGif.Windows
         private void Ok_Executed(object sender, ExecutedRoutedEventArgs e)
         {
             _applyAction?.Invoke(sender, e);
-            _applyAction = null;
+
+            //If the StatusBand started displaying the message, it means that the action failed.
+            if (!EditorStatusBand.Starting)
+                _applyAction = null;
         }
 
         private void Cancel_Executed(object sender, ExecutedRoutedEventArgs e)
         {
             _applyAction = null;
-            BeginStoryboard(FindResource("HidePanelStoryboard") as Storyboard, HandoffBehavior.Compose);
-            BeginStoryboard(FindResource("HideOverlayGridStoryboard") as Storyboard, HandoffBehavior.Compose);
+
+            ClosePanel();
         }
 
         #endregion
@@ -2852,6 +2837,18 @@ namespace ScreenToGif.Windows
                 PlayPause();
 
                 //Avoids the selection of the frame by using the Space key.
+                e.Handled = true;
+            }
+
+            if (e.Key == Key.PageDown)
+            {
+                NextFrame_Executed(sender, null);
+                e.Handled = true;
+            }
+
+            if (e.Key == Key.PageUp)
+            {
+                PreviousFrame_Executed(sender, null);
                 e.Handled = true;
             }
         }
@@ -3122,6 +3119,7 @@ namespace ScreenToGif.Windows
                         {
                             var frame = (FrameListBoxItem)FrameListView.Items[index];
 
+                            //TODO: Check if ListFrames.Count == FrameListView.Items.Count
                             frame.FrameNumber = index;
                             frame.Delay = ListFrames[index].Delay;
                             frame.Image = null; //To update the image.
@@ -3168,12 +3166,16 @@ namespace ScreenToGif.Windows
 
         private void LoadSelectedCallback(IAsyncResult ar)
         {
-            var result = _loadSelectedFramesDel.EndInvoke(ar);
+            try
+            {
+                var result = _loadSelectedFramesDel.EndInvoke(ar);
+            }
+            catch (Exception)
+            {}
 
             Dispatcher.Invoke(delegate
             {
                 Cursor = Cursors.Arrow;
-                IsLoading = false;
                 HideProgress();
 
                 if (LastSelected != -1)
@@ -3185,9 +3187,9 @@ namespace ScreenToGif.Windows
                 }
 
                 FrameListView.Focus();
-
                 UpdateStatistics();
 
+                IsLoading = false;
                 CommandManager.InvalidateRequerySuggested();
             });
         }
@@ -3833,6 +3835,8 @@ namespace ScreenToGif.Windows
                     break;
                 case PanelType.Progress:
                     ProgressGrid.Visibility = Visibility.Visible;
+
+                    ChangeProgressTextToCurrent();
                     ShowHint("Hint.ApplyAll");
                     break;
                 case PanelType.OverrideDelay:
@@ -3904,9 +3908,10 @@ namespace ScreenToGif.Windows
             EditorStatusBand.Hide();
 
             RemoveAdorners();
+            SetFocusOnCurrentFrame();
 
-            ActionGrid.BeginStoryboard(FindResource("HidePanelStoryboard") as Storyboard);
-            OverlayGrid.BeginStoryboard(FindResource("HideOverlayGridStoryboard") as Storyboard);
+            BeginStoryboard(FindStoryboard("HidePanelStoryboard"), HandoffBehavior.Compose);
+            BeginStoryboard(FindStoryboard("HideOverlayGridStoryboard"), HandoffBehavior.Compose);
         }
 
         private List<int> SelectedFramesIndex()
@@ -4483,13 +4488,13 @@ namespace ScreenToGif.Windows
 
             #region Images
 
-            var size = Dispatcher.Invoke(() => FrameSize);
+            //var size = Dispatcher.Invoke(() => FrameSize);
             var dpi = Dispatcher.Invoke(this.Dpi);
 
             //TODO: Check with high dpi. Also with image dpi that is different from the screen
             var previousImage = ListFrames[selected].ImageLocation.SourceFrom();
             var nextImage = UserSettings.All.FadeToType == FadeToType.NextFrame ? ListFrames[ListFrames.Count - 1 == selected ? 0 : selected + 1].ImageLocation.SourceFrom() :
-                ImageMethods.CreateEmtpyBitmapSource(UserSettings.All.FadeToColor, (int)size.Width, (int)size.Height, dpi, PixelFormats.Indexed1);
+                ImageMethods.CreateEmtpyBitmapSource(UserSettings.All.FadeToColor, previousImage.PixelWidth, previousImage.PixelHeight, dpi, PixelFormats.Indexed1);
 
             var nextBrush = new ImageBrush
             {
@@ -4767,6 +4772,63 @@ namespace ScreenToGif.Windows
         private Storyboard FindStoryboard(string key)
         {
             return (Storyboard)TryFindResource(key);
+        }
+
+        private void SetFocusOnCurrentFrame()
+        {
+            var current = FrameListView.SelectedItem as FrameListBoxItem;
+            current?.Focus();
+        }
+        
+        private void ChangeProgressText(long cumulative, long total, int current)
+        {
+            switch (ProgressPrecisionComboBox.SelectedIndex)
+            {
+                case 0: //Minutes
+                    ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? TimeSpan.FromMilliseconds(cumulative).ToString(@"m\:ss") + "/" + TimeSpan.FromMilliseconds(total).ToString(@"m\:ss")
+                        : TimeSpan.FromMilliseconds(cumulative).ToString(@"m\:ss");
+                    break;
+                case 1: //Seconds
+                    ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? (int)TimeSpan.FromMilliseconds(cumulative).TotalSeconds + "/" + TimeSpan.FromMilliseconds(total).TotalSeconds + " s"
+                        : (int)TimeSpan.FromMilliseconds(cumulative).TotalSeconds + " s";
+                    break;
+                case 2: //Miliseconds
+                    ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? cumulative + "/" + total + " ms" : cumulative + " ms";
+                    break;
+                case 3: //Percentage
+                    var count = (double)ListFrames.Count;
+                    ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? (current / count * 100).ToString("##0.#") + "/100%"
+                        : (current / count * 100).ToString("##0.# %");
+                    break;
+                case 4: //Frame number
+                    ProgressHorizontalTextBlock.Text = UserSettings.All.ProgressShowTotal ? current + "/" + ListFrames.Count
+                        : current.ToString();
+                    break;
+                case 5: //Custom
+                    ProgressHorizontalTextBlock.Text = CustomProgressTextBox.Text
+                        .Replace("$ms", cumulative.ToString())
+                        .Replace("$s", ((int)TimeSpan.FromMilliseconds(cumulative).TotalSeconds).ToString())
+                        .Replace("$m", TimeSpan.FromMilliseconds(cumulative).ToString())
+                        .Replace("$p", (current / (double)ListFrames.Count * 100).ToString("##0.#"))
+                        .Replace("$f", current.ToString())
+                        .Replace("@ms", total.ToString())
+                        .Replace("@s", ((int)TimeSpan.FromMilliseconds(total).TotalSeconds).ToString())
+                        .Replace("@m", TimeSpan.FromMilliseconds(total).ToString(@"m\:ss"))
+                        .Replace("@p", "100")
+                        .Replace("@f", ListFrames.Count.ToString());
+                    break;
+            }
+        }
+
+        private void ChangeProgressTextToCurrent()
+        {
+            var total = ListFrames.Sum(y => y.Delay);
+            var cumulative = 0L;
+
+            for (var j = 0; j < FrameListView.SelectedIndex; j++)
+                cumulative += ListFrames[j].Delay;
+
+            ChangeProgressText(cumulative, total, FrameListView.SelectedIndex);
         }
 
         #endregion
